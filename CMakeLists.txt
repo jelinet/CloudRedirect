@@ -5,6 +5,20 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# Link the MSVC runtime statically (/MT) instead of the default /MD.
+# (2026-10-17) A Release DLL built with the default imported MSVCP140.dll,
+# MSVCP140_ATOMIC_WAIT.dll, VCRUNTIME140.dll and VCRUNTIME140_1.dll (checked with
+# objdump -p on a downloaded cloud_redirect.dll), so on a machine without a recent
+# VC++ Redistributable Steam failed to load it with err=126 (ERROR_MOD_NOT_FOUND).
+# Static runtime removes that dependency; the cost is a larger DLL. This DLL lives
+# inside the Steam process and only crosses the module boundary with plain C types
+# (see CloudOnSendPkt / cr_api), so a private CRT copy is safe here. Needs CMP0091
+# NEW, which cmake_minimum_required(3.20) above already gives us. Multi-config safe
+# (Ninja Multi-Config in CI) because it is a generator expression.
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 # ── Read version from Version.props ─────────────────────────────────────
 file(READ "${CMAKE_SOURCE_DIR}/Version.props" VERSION_PROPS_CONTENT)
 string(REGEX MATCH "<ReleaseVersion>([^<]+)</ReleaseVersion>" _ "${VERSION_PROPS_CONTENT}")

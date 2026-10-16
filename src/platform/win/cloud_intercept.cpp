@@ -47,6 +47,27 @@
 
 namespace AutoCloudScan { std::string GetAppName(const std::string& steamPath, uint32_t appId); }
 
+// Expands %VAR% references (e.g. "%AppData%\CloudRedirect") in a UTF-8 path from the
+// config. Added 2026-10-17 for sync_path: LocalDiskProvider::Init takes its root
+// verbatim, so without this "%AppData%" became a literal folder name under the
+// working directory. Wide API for the same reason as the rest of this file: the
+// ANSI variant mangles non-ASCII usernames. An undefined variable is left as-is by
+// ExpandEnvironmentStringsW (it stays a literal "%NAME%"). Any failure returns the
+// input unchanged, i.e. the previous behavior, so this can't make a working path worse.
+static std::string ExpandEnvVarsUtf8(const std::string& in) {
+    if (in.find('%') == std::string::npos) return in;
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, in.c_str(), -1, nullptr, 0);
+    if (wlen <= 0) return in;
+    std::wstring wide((size_t)wlen, L'\0');
+    if (MultiByteToWideChar(CP_UTF8, 0, in.c_str(), -1, wide.data(), wlen) <= 0) return in;
+    DWORD need = ExpandEnvironmentStringsW(wide.c_str(), nullptr, 0);
+    if (need == 0) return in;
+    std::wstring out((size_t)need, L'\0');
+    if (ExpandEnvironmentStringsW(wide.c_str(), out.data(), need) == 0) return in;
+    std::string expanded = FileUtil::WideToUtf8(out.c_str());  // stops at the NUL
+    return expanded.empty() ? in : expanded;
+}
+
 namespace CloudIntercept {
 
 static void ShutdownImpl();
@@ -4609,7 +4630,7 @@ void Init(const std::string& steamPath, bool cloudSaveOnly, CR_NotifyFn notifyCa
             provider = CreateCloudProvider(providerName);
             if (provider) {
                 std::string initPath = tokenPath;
-                std::string syncPath = cfg["sync_path"].str();
+                std::string syncPath = ExpandEnvVarsUtf8(cfg["sync_path"].str());
                 if (providerName == "folder" && !syncPath.empty()) {
                     initPath = syncPath;
                 }

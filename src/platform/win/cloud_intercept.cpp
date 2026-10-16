@@ -4307,8 +4307,15 @@ void Init(const std::string& steamPath, bool cloudSaveOnly, CR_NotifyFn notifyCa
     // Steam-side config (per-system, controls DLL feature toggles).
     // Read this early so we know whether to init cloud features.
     std::string cloudRoot = g_steamPath + "cloud_redirect\\";
+    // (2026-10-17) Both config files now live in <Steam>\opensteamtool\cloudredirect\
+    // instead of <Steam>\cloud_redirect\ (this one) and %AppData%\CloudRedirect\ (the
+    // user-level one read further below). They stay two separate files, not merged,
+    // hence the different names: config.json here, cloud_redirect.json for the
+    // user-level one. No fallback to the old locations: a stale file there is ignored.
+    // storage\ is deliberately NOT moved, it stays under cloudRoot.
+    std::string configDir = g_steamPath + "opensteamtool\\cloudredirect\\";
     {
-        std::string pinConfigPath = cloudRoot + "config.json";
+        std::string pinConfigPath = configDir + "config.json";
         std::ifstream pinFile(FileUtil::Utf8ToPath(pinConfigPath));
         if (pinFile) {
             std::string pinStr((std::istreambuf_iterator<char>(pinFile)), {});
@@ -4568,23 +4575,13 @@ void Init(const std::string& steamPath, bool cloudSaveOnly, CR_NotifyFn notifyCa
     // init CloudStorage manager - read config to determine cloud provider
     std::unique_ptr<ICloudProvider> provider;
 
-    // Config lives in %AppData%/CloudRedirect/config.json (per-user)
-    std::string configPath;
-    {
-        // Wide-API: SHGetFolderPathA mangles non-ASCII usernames, falling back to
-        // local-only mode even when a cloud provider is configured.
-        PWSTR wideAppData = nullptr;
-        HRESULT hr = SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_DEFAULT, nullptr, &wideAppData);
-        if (SUCCEEDED(hr) && wideAppData) {
-            configPath = FileUtil::WideToUtf8(wideAppData) + "\\CloudRedirect\\config.json";
-            CoTaskMemFree(wideAppData);
-        } else {
-            if (wideAppData) CoTaskMemFree(wideAppData);
-            configPath = cloudRoot + "config.json";
-            LOG("[NS] WARNING: Could not resolve %%APPDATA%%, falling back to steam folder for config");
-        }
-    }
-    // Read manifest endpoint from settings.json (same directory as config.json).
+    // User-level config (provider, sync_path, token_path, ...). Moved here from
+    // %AppData%\CloudRedirect\config.json on 2026-10-17, see configDir above.
+    // settings.json below is derived from this path, so it moves with it.
+    // token_path is an absolute path taken from this file, so token/credential
+    // files are NOT relocated by this change.
+    std::string configPath = configDir + "cloud_redirect.json";
+    // Read manifest endpoint from settings.json (same directory as cloud_redirect.json).
     {
         std::string settingsDir = configPath.substr(0, configPath.rfind('\\') + 1);
         std::string settingsPath = settingsDir + "settings.json";
@@ -4708,7 +4705,7 @@ void Init(const std::string& steamPath, bool cloudSaveOnly, CR_NotifyFn notifyCa
             LOG("[NS] DLL auto-update enabled, checking in background");
         }
     } else {
-        LOG("[NS] No config.json at %s -- local-only mode", configPath.c_str());
+        LOG("[NS] No cloud_redirect.json at %s -- local-only mode", configPath.c_str());
     }
 
     CloudStorage::Init(cloudRoot, std::move(provider));

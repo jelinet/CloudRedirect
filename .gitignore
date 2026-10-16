@@ -20,3 +20,7 @@ tools/
 flatpak/release.sh
 ui/native/
 release-*/
+*.log
+.DS_Store
+.claude/
+*.md
